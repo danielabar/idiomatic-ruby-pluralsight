@@ -19,6 +19,9 @@
     - [Desired Behavior](#desired-behavior)
     - [Unit Testing: Why and How](#unit-testing-why-and-how)
     - [First Unit Test: attr_reader](#first-unit-test-attr_reader)
+    - [Our Second Unit Test: attr_writer](#our-second-unit-test-attr_writer)
+  - [Enumerable is our Pal](#enumerable-is-our-pal)
+    - [Map: Transforming Collections](#map-transforming-collections)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -845,3 +848,580 @@ Rather than defining test methods, use `it` blocks.
 For this course will use MiniTest because it ships with Ruby. But it's good to know both because they're both widely used.
 
 ### First Unit Test: attr_reader
+
+Will use TDD approach.
+
+[movie.rb](unit_test/movie.rb) | [movie_test.rb](unit_test/movie_test.rb)
+
+In the test `setup` method, initialize a movie object with a hash. In actual fact it will get initialized from a csv row object, but this is similar to a hash.
+
+Simplest possible test of the movie object is to ask for its director, and ensure it returns "George Lucas":
+
+```ruby
+# require test framework
+require 'minitest/autorun'
+
+# require class under test
+require_relative 'movie'
+
+# inherit from test framework
+class MovieTest < MiniTest::Test
+  def setup
+    # initialize test object with a hash
+    @movie = Movie.new({
+      :title => "Star Wars",
+      :genre => "Science Fiction",
+      :director => "George Lucas",
+      :release_date => "1977-05-25",
+      :rotten_tomatoes => "93"
+    })
+  end
+
+  def test_director
+    assert_equal "George Lucas", @movie.director
+  end
+end
+```
+
+Running the test file `ruby /path/to/test_file.rb` or using VS Code runner, and this test fails:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 61979
+
+# Running:
+
+E
+
+Error:
+MovieTest#test_director:
+ArgumentError: wrong number of arguments (given 1, expected 0)
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:6:in `initialize'
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:6:in `new'
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:6:in `setup'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:15
+
+
+
+Finished in 0.001044s, 957.8544 runs/s, 0.0000 assertions/s.
+1 runs, 0 assertions, 0 failures, 1 errors, 0 skips
+
+[Done] exited with code=1 in 0.703 seconds
+```
+
+Error is on trying to construct the movie object. Ruby's default constructor takes no arguments, but test code is passing a single argument (hash) to the `Movie` class constructor.
+
+To fix this, go to Movie class and define `initialize` method to make this part of the test pass. Initializer should accept a csv row, extract the director variable, and save it to `@director` instance variable, then define a method that simply returns this instance variable:
+
+```ruby
+class Movie
+  def initialize(csv_row)
+    @director = csv_row[:director]
+  end
+
+  def director
+    return @director
+  end
+end
+```
+
+Run the test again and this time it passes:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 10834
+
+# Running:
+
+.
+
+Finished in 0.001272s, 786.1635 runs/s, 786.1635 assertions/s.
+1 runs, 1 assertions, 0 failures, 0 errors, 0 skips
+
+[Done] exited with code=0 in 0.511 seconds
+```
+
+Let's add similar tests to access the remaining movie attributes. Notice that the release date test expects to receive a Date object, and the rotten tomatoes test expects to get a Number object.
+
+```ruby
+require 'minitest/autorun'
+require_relative 'movie'
+
+# instructor did not do so but I had to require date library as per docs at:
+# https://docs.ruby-lang.org/en/2.7.0/Date.html
+require 'date'
+
+class MovieTest < MiniTest::Test
+  def setup
+    @movie = Movie.new({
+      :title => "Star Wars",
+      :genre => "Science Fiction",
+      :director => "George Lucas",
+      :release_date => "1977-05-25",
+      :rotten_tomatoes => "93"
+    })
+  end
+
+  def test_director
+    assert_equal "George Lucas", @movie.director
+  end
+
+  def test_genre
+    assert_equal "Science Fiction", @movie.genre
+  end
+
+  def test_release_date
+    assert_equal Date.new(1977,5,25), @movie.release_date
+  end
+
+  def test_rotten_tomatoes
+    assert_equal 93, @movie.rotten_tomatoes
+  end
+
+  def test_title
+    assert_equal "Star Wars", @movie.title
+  end
+end
+```
+
+Running the test now will generate a lot of errors because we haven't yet defined methods for the other attributes (other than director):
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 46587
+
+# Running:
+
+.E
+
+Error:
+MovieTest#test_release_date:
+NoMethodError: undefined method `release_date' for #<Movie:0x00007fde36133988 @director="George Lucas">
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:25:in `test_release_date'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:24
+
+E
+
+Error:
+MovieTest#test_genre:
+NoMethodError: undefined method `genre' for #<Movie:0x00007fde36128d30 @director="George Lucas">
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:21:in `test_genre'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:20
+
+E
+
+Error:
+MovieTest#test_rotten_tomatoes:
+NoMethodError: undefined method `rotten_tomatoes' for #<Movie:0x00007fde36118778 @director="George Lucas">
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:29:in `test_rotten_tomatoes'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:28
+
+E
+
+Error:
+MovieTest#test_title:
+NoMethodError: undefined method `title' for #<Movie:0x00007fde36108f80 @director="George Lucas">
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:33:in `test_title'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:32
+
+
+
+Finished in 0.007696s, 649.6881 runs/s, 129.9376 assertions/s.
+5 runs, 1 assertions, 0 failures, 4 errors, 0 skips
+
+[Done] exited with code=1 in 0.422 seconds
+```
+
+Go back to Movie class to fix this. Need to capture all data from csv_row as instance variables in initializer, then define methods to return these instance variables:
+
+```ruby
+class Movie
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = csv_row[:release_date]
+    @rotten_tomatoes = csv_row[:rotten_tomatoes]
+    @title = csv_row[:title]
+  end
+
+  def director
+    return @director
+  end
+
+  def genre
+    return @genre
+  end
+
+  def release_date
+    return @release_date
+  end
+
+  def rotten_tomatoes
+    return @rotten_tomatoes
+  end
+
+  def title
+    return @title
+  end
+end
+```
+
+Running the test again leaves a couple errors - for rotten tomatoes and release date due to data types. `csv_row` object contains all strings but test expects the Movie class to have converted these to number and date respectively:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 14439
+
+# Running:
+
+..F
+
+Failure:
+MovieTest#test_release_date [/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:25]:
+--- expected
++++ actual
+@@ -1 +1 @@
+-#<Date: 1977-05-25 ((2443289j,0s,0n),+0s,2299161j)>
++"1977-05-25"
+
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:24
+
+F
+
+Failure:
+MovieTest#test_rotten_tomatoes [/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:29]:
+Expected: 93
+  Actual: "93"
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:28
+
+.
+
+Finished in 0.030183s, 165.6562 runs/s, 165.6562 assertions/s.
+5 runs, 5 assertions, 2 failures, 0 errors, 0 skips
+
+[Done] exited with code=1 in 0.576 seconds
+```
+
+To fix the date issue, require the date library in Movie class, and use `Date.parse` method when initializing the release_date instance variable:
+
+```ruby
+require 'date'
+
+class Movie
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes]
+    @title = csv_row[:title]
+  end
+  # ...
+end
+```
+
+Now test runs with only rotten tomatoes error re: number type:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 57612
+
+# Running:
+
+....F
+
+Failure:
+MovieTest#test_rotten_tomatoes [/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:29]:
+Expected: 93
+  Actual: "93"
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb:28
+
+
+
+Finished in 0.001611s, 3103.6623 runs/s, 3103.6623 assertions/s.
+5 runs, 5 assertions, 1 failures, 0 errors, 0 skips
+
+[Done] exited with code=1 in 0.549 seconds
+```
+
+To fix this, invoke the `to_i` method on the string returned from csv row, in the Movie class initializer:
+
+```ruby
+require 'date'
+
+class Movie
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+  # ...
+end
+```
+
+Now all tests pass:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/unit_test/movie_test.rb"
+Run options: --seed 37075
+
+# Running:
+
+.....
+
+Finished in 0.001498s, 3337.7837 runs/s, 3337.7837 assertions/s.
+5 runs, 5 assertions, 0 failures, 0 errors, 0 skips
+
+[Done] exited with code=0 in 0.417 seconds
+```
+
+We now have movie object that behaves as expected. But we had to write a lot of code in Movie class to achieve this. It's tme to refactor Movie class to make it simpler. The automated tests we wrote will ensure we're not breaking things as we refactor.
+
+First thing to note is all the getter methods are essentially the same, they return the instance variable of the same name as the getter method.
+
+In Ruby, the last value in a given expression is always the return value of that expression. So we can eliminate all the `return`s. Only need to use `return` when want to explicitly exit a method early:
+
+```ruby
+require 'date'
+
+class Movie
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+
+  def director
+    @director
+  end
+
+  def genre
+    @genre
+  end
+
+  def release_date
+    @release_date
+  end
+
+  def rotten_tomatoes
+    @rotten_tomatoes
+  end
+
+  def title
+    @title
+  end
+end
+```
+
+Run the tests again - all pass.
+
+Next improvement - defining getter methods is a common pattern, so Ruby provides a built-in macro: `attr_reader`. To use it, remove all getter methods, and invoke `attr_reader` macro at top of class with list of all attributes. This macro defines getter methods for all the attributes given to it:
+
+```ruby
+require 'date'
+
+class Movie
+  attr_reader :director, :genre, :release_date, :rotten_tomatoes, :title
+
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+end
+```
+
+All the tests still pass.
+
+### Our Second Unit Test: attr_writer
+
+[movie.rb](second_unit_test/movie.rb) | [movie_test.rb](second_unit_test/movie_test.rb)
+
+We'd like our movie object to have some predicate methods so we can answer questions such as "is this movie a comedy"?. Start by defining this behaviour in the test:
+
+```ruby
+require 'minitest/autorun'
+require_relative 'movie'
+require 'date'
+
+class MovieTest < MiniTest::Test
+  def setup
+    @movie = Movie.new({
+      :title => "Star Wars",
+      :genre => "Science Fiction",
+      :director => "George Lucas",
+      :release_date => "1977-05-25",
+      :rotten_tomatoes => "93"
+    })
+  end
+
+  def test_comedy?
+    assert_equal false, @movie.comedy?
+  end
+
+  # ...
+end
+```
+
+But to test completely, need both a test where `comedy?` returns false, and one where it returns true. Update the test to change movie genre, then assert again:
+
+```ruby
+def test_comedy?
+  assert_equal false, @movie.comedy?
+  @movie.genre = "Comedy"
+  assert_equal true, @movie.comedy?
+end
+```
+
+Run tests now, expect the new test to fail because `comedy?` predicate method not yet implemented:
+
+```
+Error:
+MovieTest#test_comedy?:
+NoMethodError: undefined method `comedy?' for #<Movie:0x00007f9a4c0b24b0>
+    /Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/second_unit_test/movie_test.rb:17:in `test_comedy?'
+
+rails test Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/second_unit_test/movie_test.rb:16
+
+....
+
+Finished in 0.002414s, 2485.5012 runs/s, 2071.2510 assertions/s.
+6 runs, 5 assertions, 0 failures, 1 errors, 0 skips
+```
+
+To fix this, implement the missing method in the movie class by simply checking if the genre attribute is "Comedy":
+
+```ruby
+require 'date'
+
+class Movie
+  attr_reader :director, :genre, :release_date, :rotten_tomatoes, :title
+
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+
+  def comedy?
+    genre == "Comedy"
+  end
+end
+```
+
+Now running tests get a different failure, that there's no method defined for `genre=`. It comes from the line in the test that's trying to write a new genre value to the movie object, but the object currently does not support writing to its attribute:
+
+```ruby
+@movie.genre = "Comedy"
+```
+
+To fix this, add a setter method to movie class for genre:
+
+```ruby
+class Movie
+  # ...
+
+  def genre=(new_genre)
+    @genre = new_genre
+  end
+
+  # ...
+end
+```
+
+Now the tests pass.
+
+Now time to refactor - just like manually writing getter methods can be replaced with the `attr_reader` macro, manually writing setter methods can be replaced with the `attr_writer` macro. This macro defines setter methods for all the given attributes:
+
+```ruby
+require 'date'
+
+class Movie
+  attr_reader :director, :genre, :release_date, :rotten_tomatoes, :title
+  attr_writer :genre
+
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+
+  def comedy?
+    genre == "Comedy"
+  end
+end
+```
+
+Run the tests again - all passing.
+
+Look at movie class again and ask "can we do better?". Notice that `:genre` is an argument to both `attr_reader` and `attr_writer` macros. This can be replaced with the `attr_accessor` macro that generates *both* getter and setter methods for the given attributes:
+
+```ruby
+require 'date'
+
+class Movie
+  attr_accessor :genre
+  attr_reader :director, :release_date, :rotten_tomatoes, :title
+
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+
+  def comedy?
+    genre == "Comedy"
+  end
+end
+```
+
+Run the tests again - all passing.
+
+Modify movie class to make all attributes readable and writable:
+
+```ruby
+require 'date'
+
+class Movie
+  attr_accessor :director, :genre, :release_date, :rotten_tomatoes, :title
+
+  def initialize(csv_row)
+    @director = csv_row[:director]
+    @genre = csv_row[:genre]
+    @release_date = Date.parse(csv_row[:release_date])
+    @rotten_tomatoes = csv_row[:rotten_tomatoes].to_i
+    @title = csv_row[:title]
+  end
+
+  def comedy?
+    genre == "Comedy"
+  end
+end
+```
+
+All tests still passing.
+
+Conclusion: Now have a Movie object to make it easier to interact with movie library.
+
+## Enumerable is our Pal
+
+### Map: Transforming Collections
