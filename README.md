@@ -22,6 +22,7 @@
     - [Our Second Unit Test: attr_writer](#our-second-unit-test-attr_writer)
   - [Enumerable is our Pal](#enumerable-is-our-pal)
     - [Map: Transforming Collections](#map-transforming-collections)
+    - [Select: Filtering a Collection](#select-filtering-a-collection)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -1424,4 +1425,246 @@ Conclusion: Now have a Movie object to make it easier to interact with movie lib
 
 ## Enumerable is our Pal
 
+Processing collections and lists.
+
 ### Map: Transforming Collections
+
+Recall after reading in a list of movies from `CSV.read`, we get a list of csv row objects. But we want to represent each entry in the list as a movie object, which we implemented during unit testing earlier.
+
+Attempt to convert first csv row object into a movie object:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+pp Movie.new(rows.first)
+```
+
+It works - first csv row has been converted into a Movie object. Note the release date is a Date object, and rotten_tomatoes score is an integer:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/project_enum_map/movies.rb"
+#<Movie:0x00007fce390944d0
+@director="George Lucas",
+@genre="Science Fiction",
+@release_date=#<Date: 1977-05-25 ((2443289j,0s,0n),+0s,2299161j)>,
+@rotten_tomatoes=93,
+@title="Star Wars Episode IV: A New Hope">
+
+[Done] exited with code=0 in 0.239 seconds
+```
+
+But we want *all* the csv rows converted to movie objects. Start with empty list of movies, and iterate over each row object, turning it into movie object:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = []
+rows.each do |row|
+  movies << Movie.new(row)
+end
+
+pp movies.last
+```
+
+Output:
+
+```
+[Running] ruby "/Users/dbaron/projects/pluralsight/idiomatic-ruby-pluralsight/project_enum_map/movies.rb"
+#<Movie:0x00007feaae0d8d10
+ @director="J.J. Abrams",
+ @genre="Science Fiction",
+ @release_date=#<Date: 2013-05-16 ((2456429j,0s,0n),+0s,2299161j)>,
+ @rotten_tomatoes=87,
+ @title="Star Trek Into Darkness">
+
+[Done] exited with code=0 in 0.247 seconds
+```
+
+This is very common pattern in programming - transforming one collection into another. Called: Mapping, each item in new list is a transformation of item in old list.
+
+Rather than explicitly having to make a new empty list, iterate it, execute conversion, and explicitly add new items to new list, would be more convenient to specify just the transformation, and let Ruby handle the rest.
+
+Let's implement our own `transform` method. It accepts a list and a block, but don't need to specify block in list of parameters, Ruby handles that. Then iterate over the given collection, and invoke yield on each item, which will execute the given block code.
+
+Calling `yield` in a method is the simplest way to call the block that someone has passed into the method. Then use the `transform` method by passing in the list of csv row objects, and a block that converts them to movie objects:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+def transform(collection1)
+  collection2 = []
+  collection1.each do |item|
+    # expect that the block given to transform method does some conversion
+    collection2 << yield(item)
+  end
+  # remember to return the newly generated collection
+  collection2
+end
+
+movies = transform(rows) do |row|
+  Movie.new(row)
+end
+
+pp movies.last
+```
+
+Output:
+
+```
+#<Movie:0x00007fea248b11c0
+@director="J.J. Abrams",
+@genre="Science Fiction",
+@release_date=#<Date: 2013-05-16 ((2456429j,0s,0n),+0s,2299161j)>,
+@rotten_tomatoes=87,
+@title="Star Trek Into Darkness">
+```
+
+Improvement: It feels awkward to pass the list of `rows` to `transform` method, would be more convenient to call transform on the rows such as: `rows.transform...`
+
+Recall that the `CSV.read` method returns a `CSV::Table` object.
+
+Ruby allows us to open up that class and add a new method, aka *Monkey Patching*. Not considered good practice on large team projects because it can be "surprising" when a standard Ruby class suddenly has a bunch of custom methods added to it.
+But it's fine on small personal projects and for learning.
+
+Let's add the `transform` method to this class. It doesn't need to accept an input collection because its operating on itself:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+class CSV::Table
+  def transform
+    collection2 = []
+    each do |item|
+      collection2 << yield(item)
+    end
+    collection2
+  end
+end
+
+movies = rows.transform do |row|
+  Movie.new(row)
+end
+
+pp movies.last
+```
+
+Output:
+
+```
+#<Movie:0x00007f8e7b0b12b8
+@director="J.J. Abrams",
+@genre="Science Fiction",
+@release_date=#<Date: 2013-05-16 ((2456429j,0s,0n),+0s,2299161j)>,
+@rotten_tomatoes=87,
+@title="Star Trek Into Darkness">
+```
+
+Monkey patching `transform` method into `CSV::Table` class worked, but it only works for CSV::Table collections.
+
+To make `transform` available in *any* collection, add it to the `Enumerable` module. Nearly all Ruby collections include this module, so this allows us to invoke `transform` on any collection that includes this module.
+
+Example:
+```ruby
+class CSV::Table
+  include Enumerable
+  ...
+end
+```
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+# Monkey patch Enumerable module to add our custom transform method
+module Enumerable
+  def transform
+    collection2 = []
+    each do |item|
+      collection2 << yield(item)
+    end
+    collection2
+  end
+end
+
+movies = rows.transform do |row|
+  Movie.new(row)
+end
+
+pp movies.last
+```
+
+Still get the same output as before so its working.
+
+Refactor: Make our code even simpler. `Enumerable` module has already implemented this transformation pattern via a `map` method. So we can remove our custom monkey patching and simply call `map` on the csv rows collection returned from `CSV.read...`:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map do |row|
+  Movie.new(row)
+end
+
+pp movies.last
+```
+
+Output:
+
+```
+#<Movie:0x00007f91e61112a8
+@director="J.J. Abrams",
+@genre="Science Fiction",
+@release_date=#<Date: 2013-05-16 ((2456429j,0s,0n),+0s,2299161j)>,
+@rotten_tomatoes=87,
+@title="Star Trek Into Darkness">
+```
+
+Refactor: Since the transformation function being passed to `map` is so simple, seems a waste of space to have in its own line. Try to inline it:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map do |row| Movie.new(row) end
+
+pp movies.last
+```
+
+It works, but looks strange to read `do... end` in a single line. Difficult to see "edges" of block and where the actual transformation code starts and ends.
+
+For a single line block, Ruby provides an alternate syntax using curly braces:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+pp movies.last
+```
+
+Same output as before.
+
+Now the transformation code is simple and easy to read.
+
+### Select: Filtering a Collection
