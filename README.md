@@ -23,6 +23,8 @@
   - [Enumerable is our Pal](#enumerable-is-our-pal)
     - [Map: Transforming Collections](#map-transforming-collections)
     - [Select: Filtering a Collection](#select-filtering-a-collection)
+    - [Reduce: Aggregate Values](#reduce-aggregate-values)
+    - [Group By](#group-by)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -1668,3 +1670,212 @@ Same output as before.
 Now the transformation code is simple and easy to read.
 
 ### Select: Filtering a Collection
+
+Want to answer the question: What is the average rotten tomatoes score of entire library?
+
+First attempt, initialize a variable `total_rotten_tomatoes` to `0`, then iterate through each movie and increment the variable with the current movie's score. Then divide total by number of movies to get average:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+total_rotten_tomatoes = 0
+movies.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+
+# size/length array methods are aliases: https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-length
+average_rotten_tomatoes = total_rotten_tomatoes / movies.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 77
+```
+
+Output returned is integer approximation because we're doing integer arithmetic, because the total was initialized to `0` (Integer) rather than `0.0` (Float). Fix this:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+total_rotten_tomatoes = 0.0
+movies.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+
+# size/length array methods are aliases: https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-length
+average_rotten_tomatoes = total_rotten_tomatoes / movies.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 77.70370370370371
+```
+
+This score seems low. Reason is one of the movies in csv file has a score of 0, i.e. rotten tomatoes has not assigned a score as not enough people have watched it. To get accurate average, need to filter out movies that haven't been assigned a score.
+
+Make a collection of movies that only have a score of greater than zero. Then calculate the total score using this filtered collection:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = []
+movies.each do |movie|
+  with_rotten_tomatoes << movie if movie.rotten_tomatoes > 0
+end
+
+total_rotten_tomatoes = 0.0
+with_rotten_tomatoes.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 80.6923076923077
+```
+
+Now getting an accurate average but code has become messy. Refactor using enumerable patterns to replace common tasks.
+
+This block is finding a subset of a collection:
+
+```ruby
+with_rotten_tomatoes = []
+movies.each do |movie|
+  with_rotten_tomatoes << movie if movie.rotten_tomatoes > 0
+end
+```
+
+Let's define our own `subset` method and monkey patch it into `Enumerable` module. Then use it to filter down the list of movies with rotten tomatoes score. Since the block is so simple, use `{...}` syntax to define it on a single line:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+module Enumerable
+  def subset
+    collection = []
+    each do |item|
+      collection << item if yield(item)
+    end
+    collection
+  end
+end
+
+with_rotten_tomatoes = movies.subset { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = 0.0
+with_rotten_tomatoes.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 80.6923076923077
+```
+
+Same output as before so the refactor worked.
+
+Next refactor: Ruby Enumerable already has a version of our custom `subset` method named [select](https://docs.ruby-lang.org/en/2.7.0/Enumerable.html#method-i-select). Let's use it and remove monkey patching:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = 0.0
+with_rotten_tomatoes.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 80.6923076923077
+```
+
+Same output as before.
+
+### Reduce: Aggregate Values
+
+Carrying on with example from previously, determining average of rotten tomatoes scores.
+
+This block transforms a collection into a single value:
+
+```ruby
+total_rotten_tomatoes = 0.0
+with_rotten_tomatoes.each do |movie|
+  total_rotten_tomatoes += movie.rotten_tomatoes
+end
+```
+
+i.e. an aggregation function. Let's monkey patch Enumerable to define a custom method to do this. It must accept an `initial_value` as the start of the aggregation. Then loop through the collection passing in the aggregate value calculated so far, and the current item to the block provided by the caller of this method. This allows the caller to modify the aggregate value based on the current item and return a new aggregate value.
+
+To use the `aggregate` method, call it, passing in `0.0` as the initial value. Then pass in a block with two arguments: `total` (so far) and the current movie that is being iterated on. Return the sum of these to the aggregation function:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+module Enumerable
+  def aggregate(initial_value)
+    aggregate_value = initial_value
+    each do |item|
+      aggregate_value = yield(aggregate_value, item)
+    end
+    aggregate_value
+  end
+end
+
+total_rotten_tomatoes = with_rotten_tomatoes.aggregate(0.0) do |total, movie|
+  total + movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 80.6923076923077
+```
+
+Next refactor: Enumerable module has `reduce` method, to reduce a collection of objects to a single value. Use it instead of the monkey patched `aggregate`:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = with_rotten_tomatoes.reduce(0.0) do |total, movie|
+  total + movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+# Average Rotten Tomatoes Score: 80.6923076923077
+```
+
+### Group By
