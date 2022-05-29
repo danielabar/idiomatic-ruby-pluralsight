@@ -25,6 +25,7 @@
     - [Select: Filtering a Collection](#select-filtering-a-collection)
     - [Reduce: Aggregate Values](#reduce-aggregate-values)
     - [Group By](#group-by)
+    - [Sort By](#sort-by)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -1879,3 +1880,190 @@ puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
 ```
 
 ### Group By
+
+Answer question about data: Are most movies released just before the holidays?
+
+Generate output showing release month, followed by number of movies released in that month. Sort output so that the most popular months are sorted first:
+
+```
+December: 12
+June: 2
+...
+```
+
+First step would be to build a hash where keys are the month names, and values are the number of movies released that month, eg:
+
+```ruby
+{
+  "January" => 1,
+  "February" => 3,
+  ...
+}
+```
+
+First attempt is procedural. Initialize empty hash, then loop through movies, extracting month name using the date method [strftime](https://docs.ruby-lang.org/en/2.7.0/Date.html#method-i-strftime). This method takes a format string and returns the date formatted according to that. `%B` format string returns the month name.
+
+Then initialize key in the hash with the current month name to 0, unless it was already initialized in an earlier iteration of the loop (use conditional assignment operator `||=`). Then increment movie counter for that month:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+# Big releases during holidays?
+count_by_month = {}
+movies.each do |movie|
+  month_name = movie.release_date.strftime("%B")
+  count_by_month[month_name] ||= 0
+  count_by_month[month_name] += 1
+end
+
+pp count_by_month
+```
+
+Output (will worry about sorting by count and making nicer output later):
+
+```ruby
+{"May"=>12,
+"June"=>6,
+"July"=>1,
+"March"=>1,
+"December"=>3,
+"September"=>1,
+"November"=>1,
+"October"=>2}
+```
+
+Code above is doing "group aggregation function", similar to GROUP BY clause in sql:
+
+```sql
+SELECT month, COUNT(*) FROM movies GROUP BY month ORDER BY COUNT(*) DESC;
+```
+
+Will use Enumerable library to help with this in two steps.
+
+First split up movie list into a set of smaller lists, one for each month. Then count number of items in each of the smaller lists.
+
+Use Enumerable [group_by](https://docs.ruby-lang.org/en/2.7.0/Enumerable.html#method-i-group_by) method, which groups the given enumerable into smaller enumerable collections. This method takes a block that specifies how the smaller groups should be created. Just return a value for each item in the list, eg: month name extracted from the current movie release date. Any items that return the same value will get grouped together.
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = with_rotten_tomatoes.reduce(0.0) do |total, movie|
+  total + movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+
+pp movies_by_month
+# Returns a hash where keys are the month names, and values are a list of movies for that month release date
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+```
+
+Next apply aggregate function to count up the number of values in each list in this hash. Use `map` method.
+
+**WATCH OUT:** When enumerating over a Hash rather than Array, for example, the `map` method, the block yields an Array where first value is the key in the current hash entry, and the second value is the value in the hash entry. Use `first` and `last` methods of the yielded Array to extract the current Hash entry's key and value respectively. Use this to return an Array where first entry is the month name and second entry is the number of movies in this month:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+
+count_by_month = movies_by_month.map do |month_and_list|
+  month = month_and_list.first
+  list = month_and_list.last
+  [month, list.size]
+end
+
+pp count_by_month
+```
+
+Output (will sort and make it pretty later):
+
+```ruby
+[["May", 12],
+["June", 6],
+["July", 1],
+["March", 1],
+["December", 3],
+["September", 1],
+["November", 1],
+["October", 2]]
+```
+
+Improvement: Use multiple assignment feature to replace two lines that are parsing out `first` and `last` to get key/value out of current map entry:
+
+```ruby
+# OLD
+count_by_month = movies_by_month.map do |month_and_list|
+  month = month_and_list.first
+  list = month_and_list.last
+  [month, list.size]
+end
+
+# BETTER
+count_by_month = movies_by_month.map do |month_and_list|
+  month, list = month_and_list
+  [month, list.size]
+end
+```
+
+An even better way: If block is expecting two arguments, can use multiple assignment right in the block arguments. i.e. make block receive two arguments, even though Enumerable is only receiving one argument (which is the current Hash entry of the `count_by_month` Hash that is being iterated over):
+
+```ruby
+# EVEN BETTER
+count_by_month = movies_by_month.map do |month, list|
+  [month, list.size]
+end
+```
+
+What we have so far:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+
+count_by_month = movies_by_month.map do |month, list|
+  [month, list.size]
+end
+
+p count_by_month
+# [["May", 12], ["June", 6], ["July", 1], ["March", 1], ["December", 3], ["September", 1], ["November", 1], ["October", 2]]
+```
+
+### Sort By
