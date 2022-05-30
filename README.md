@@ -26,6 +26,7 @@
     - [Reduce: Aggregate Values](#reduce-aggregate-values)
     - [Group By](#group-by)
     - [Sort By](#sort-by)
+    - [Refactor: Clean Up Transformations](#refactor-clean-up-transformations)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -2067,3 +2068,154 @@ p count_by_month
 ```
 
 ### Sort By
+
+Given `count_by_month` is a list of month/count pairs, could use string interpolation to pretty up the output, for example:
+
+```ruby
+pair = count_by_month.first
+puts "#{pair.first}: #{pair.last}"
+# May: 12
+```
+
+A better way - since just adding `: ` between the values in the pair. Use Array [join](https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-join) method:
+
+```ruby
+pair = count_by_month.first
+puts pair.join(": ")
+# May: 12
+```
+
+Above transformed one pair using `join`, but need to transform *all* of them. Use Enumerable `map` method to generate list of strings:
+
+```ruby
+p count_by_month.map { |pair| pair.join(": ")}
+# ["May: 12", "June: 6", "July: 1", "March: 1", "December: 3", "September: 1", "November: 1", "October: 2"]
+```
+
+Now convert this so that each string is on its own line. Use the `join` method on the resulting array to insert new line character between each entry.
+
+Also use `puts` instead of `p` because we're outputting a string rather than a data structure:
+
+```ruby
+puts count_by_month.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Output:
+
+```
+May: 12
+June: 6
+July: 1
+March: 1
+December: 3
+September: 1
+November: 1
+October: 2™
+```
+
+Only issue left to fix is sorting by descending release count, to list months with the most movie releases first. Use Enumerable [sort](https://docs.ruby-lang.org/en/2.7.0/Enumerable.html#method-i-sort) method. Pass in a block to tell sort_by what value to use to do the sorting:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+
+# Convert to list of pairs of month and count of releases
+count_by_month = movies_by_month.map do |month, list|
+  [month, list.size]
+end
+
+# Sort by release count
+count_by_month = count_by_month.sort_by do |pair|
+  pair.last
+end
+
+# Pretty display
+puts count_by_month.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Output:
+
+```
+September: 1
+July: 1
+March: 1
+November: 1
+October: 2
+December: 3
+June: 6
+May: 12
+```
+
+Let's take a closer look at the sorting block, it's a simple one-liner that just calls a method `last` on the block argument:
+
+```ruby
+# Sort by release count
+count_by_month = count_by_month.sort_by do |pair|
+  pair.last
+end
+```
+
+This is common use case - need to define an anonymous function that only needs to call one method on the single argument that the function takes. Ruby has shortcut for this: **Symbol to Proc**.
+
+Rather than passing in a block to the `sort_by` Enumerable method, pass in a symbol, which is the method name to be called (`last` in this example). The symbol is preceded with an `&`, which tells Ruby to define an anonymous function and pass it to the method:
+
+```ruby
+count_by_month = count_by_month.sort_by(&:last)
+```
+
+Is equivalent to:
+
+```ruby
+count_by_month = count_by_month.sort_by do |pair|
+  pair.last
+end
+```
+
+Finally, we want months with greater release counts to appear at top of list, call `reverse` method for this:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+movies = rows.map { |row| Movie.new(row) }
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+
+count_by_month = movies_by_month.map do |month, list|
+  [month, list.size]
+end
+
+count_by_month = count_by_month.sort_by(&:last).reverse
+
+puts count_by_month.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Output:
+
+```
+May: 12
+June: 6
+December: 3
+October: 2
+November: 1
+March: 1
+July: 1
+September: 1
+```
+
+### Refactor: Clean Up Transformations
