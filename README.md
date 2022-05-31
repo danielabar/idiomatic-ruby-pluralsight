@@ -27,6 +27,7 @@
     - [Group By](#group-by)
     - [Sort By](#sort-by)
     - [Refactor: Clean Up Transformations](#refactor-clean-up-transformations)
+    - [Wrapping Up](#wrapping-up)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -2219,3 +2220,133 @@ September: 1
 ```
 
 ### Refactor: Clean Up Transformations
+
+Code has gotten too long:
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = with_rotten_tomatoes.reduce(0.0) do |total, movie|
+  total + movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+
+# Big releases during holidays?
+movies_by_month = movies.group_by do |movie|
+  movie.release_date.strftime("%B")
+end
+# {"January" => [movie, movie, movie...], "February" => [movie, movie, ...]}
+
+count_by_month = movies_by_month.map do |month, list|
+  [month, list.size]
+end
+
+count_by_month = count_by_month.sort_by(&:last).reverse
+
+puts count_by_month.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Indent block to match assignment, then collapse `map` to happen after end of group_by. Then add sort_by and reverse calls to end of that. Keep join separate since that's not about transforming data, rather presentation of data.
+
+```ruby
+require 'csv'
+require_relative 'movie'
+
+rows = CSV.read('project_enum_map/movies.csv', :headers => true, :header_converters => :symbol, :skip_blanks => true)
+
+movies = rows.map { |row| Movie.new(row) }
+
+with_rotten_tomatoes = movies.select { |movie| movie.rotten_tomatoes > 0 }
+
+total_rotten_tomatoes = with_rotten_tomatoes.reduce(0.0) do |total, movie|
+  total + movie.rotten_tomatoes
+end
+
+average_rotten_tomatoes = total_rotten_tomatoes / with_rotten_tomatoes.size
+puts "Average Rotten Tomatoes Score: #{average_rotten_tomatoes}"
+
+# Big releases during holidays?
+count_by_month = movies.group_by do |movie|
+                  movie.release_date.strftime("%B")
+                 end.map do |month, list|
+                  [month, list.size]
+                 end.sort_by(&:last).reverse
+
+puts count_by_month.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Note some Ruby style guides say *not* to call enumerable method at end of a block, but instructor likes the above for legibility.
+
+Also want to answer: "How many movies in each genre?" Easiest way is to replace `movie.release_date.strftime("%B")` with `movie.genre` and rest of pipeline works the same way:
+
+```ruby
+count_by_genre = movies.group_by do |movie|
+                  # movie.release_date.strftime("%B")
+                  movie.genre
+                 end.map do |month, list|
+                  [month, list.size]
+                 end.sort_by(&:last).reverse
+
+puts count_by_genre.map { |pair| pair.join(": ")}.join("\n")
+```
+
+Output:
+
+```
+Science Fiction: 14
+Comedy: 5
+Adventure: 4
+Romance: 1
+Fantasy: 1
+Drama: 1
+Action: 1
+```
+
+Power of Enumerable library: easy to compose chains of transformations.
+
+### Wrapping Up
+
+Have covered most common parts of Enumerable library:
+
+* map
+* reduce
+* select
+* group_by
+* sort_by
+
+When need to transform one collection into another, prefer `map` over `each` because the intent is more clear.
+
+Nice that Enumerable methods don't change original collection, eg, `select` returns a new collection of movies where rotten_tomatoes score is greater than 0, but original movies collection is unchanged:
+
+```ruby
+movies.select { |movie| movie.rotten_tomatoes > 0 }
+```
+
+Some extra "goodies":
+
+```ruby
+# any? method checks if any item in collection satisfies given condition
+[1, 2, 3, 4, 5].any?(&:even?)   # => true
+
+# all? method checks if all items in collection satisfy given condition
+[1, 2, 3, 4, 5].all?(&:even?)   # => false
+
+# find returns first item from collection that meets given condition
+[1, 2, 3, 4, 5].find(&:even?)   # => 2
+
+# reject is opposite of select, returns collection where any item in collection that met criteria is excluded
+[1, 2, 3, 4, 5].reject(&:even?)  # => [1, 3, 5]
+```
+
+Idioms === Readability
+
+Value of Humans
